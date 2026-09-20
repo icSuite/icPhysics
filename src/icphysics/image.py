@@ -424,6 +424,12 @@ def E0_eflux_propagated(counts_list,
 
 #%% Array entry points used by icBuilder
 
+PROTON_CORRECTION_UNCERTAINTY_MODES = (
+    "legacy_add_poisson",
+    "measurement",
+)
+
+
 def proton_correct_images(
     wic,
     dwic,
@@ -433,8 +439,22 @@ def proton_correct_images(
     proton_energy_uncertainty,
     si13=None,
     dsi13=None,
+    *,
+    uncertainty_mode="legacy_add_poisson",
 ):
-    """Apply the existing SI12-based proton correction to image arrays."""
+    """Apply SI12-based proton correction to image arrays.
+
+    ``legacy_add_poisson`` preserves the extracted historical calculation:
+    the supplied standard deviations exclude counting noise, so image signal
+    is added as a Poisson variance term. ``measurement`` means the supplied
+    standard deviations already describe full detector measurement variance;
+    no additional image-signal variance is then added.
+    """
+
+    if uncertainty_mode not in PROTON_CORRECTION_UNCERTAINTY_MODES:
+        raise ValueError(
+            "uncertainty_mode must be 'legacy_add_poisson' or 'measurement'"
+        )
 
     wic = np.asarray(wic, dtype=float)
     dwic = np.asarray(dwic, dtype=float)
@@ -446,7 +466,10 @@ def proton_correct_images(
     response = proton_response(proton_energy, proton_energy_uncertainty)
 
     si12_corrected = np.clip(si12, 0, None)
-    dsi12_corrected = np.sqrt(si12 + dsi12**2)
+    if uncertainty_mode == "legacy_add_poisson":
+        dsi12_corrected = np.sqrt(si12 + dsi12**2)
+    else:
+        dsi12_corrected = dsi12.copy()
     Fp = si12_corrected / response["Tmodel"]
     dFp = fdFp(
         si12_corrected,
@@ -461,7 +484,10 @@ def proton_correct_images(
         + (response["Cpwm"] * dFp)**2
     )
     wic_corrected = np.clip(wic - proton_wic, 0, None)
-    dwic_corrected = np.sqrt(wic + dwic**2 + dproton_wic**2)
+    corrected_wic_variance = dwic**2 + dproton_wic**2
+    if uncertainty_mode == "legacy_add_poisson":
+        corrected_wic_variance = corrected_wic_variance + wic
+    dwic_corrected = np.sqrt(corrected_wic_variance)
 
     result = {
         "wic_corrected": wic_corrected,
@@ -482,9 +508,10 @@ def proton_correct_images(
             + (response["Cp13m"] * dFp)**2
         )
         result["si13_corrected"] = np.clip(si13 - proton_si13, 0, None)
-        result["dsi13_corrected"] = np.sqrt(
-            si13 + dsi13**2 + dproton_si13**2
-        )
+        corrected_si13_variance = dsi13**2 + dproton_si13**2
+        if uncertainty_mode == "legacy_add_poisson":
+            corrected_si13_variance = corrected_si13_variance + si13
+        result["dsi13_corrected"] = np.sqrt(corrected_si13_variance)
 
     return result
 
