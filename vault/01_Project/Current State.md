@@ -1,9 +1,21 @@
 # Current State
 
-Last reviewed: 2026-10-11 (Hardy electron implementation; spectrum checkpoint retained)
-Repository snapshot: `feat/spectrum-conductance` at `eecc263`
-Worktree state: Hardy electron and spectrum physics/export/tests/README and memory updates are
-uncommitted; pre-existing memory changes preserved.
+Last reviewed: 2026-10-12 (main integration verified)
+Repository snapshot: `main`; implementation checkpoint `8db326f`
+Worktree state: implementation committed; integration closeout updates project memory.
+
+## Main integration verified
+
+User approved integrating the spectrum branch into main. Fetched GitHub refs
+and confirmed main was an ancestor; fast-forwarded c3484fd to 8db326f without
+conflicts. This includes eecc263 measurement-uncertainty handling, spectrum
+conductance/uncertainty and the optional Hardy electron model. The full package
+suite passed 72 tests in tConductance on 2026-10-12 before the unchanged code
+was fast-forwarded. Existing feature branches are retained.
+
+Next: update the server from origin/main and reinstall the shared package in
+its processing environment. No server installation, corpus job or default
+electron-model change was performed. Broader Hardy validation remains open.
 
 ## Hardy electron model implemented
 
@@ -47,9 +59,10 @@ The620 allmissing daily spectra remain unavailable. Detailed source/numerical
 and scratch evidence belongs to icBuilder's DMSP Spectrum Conductance Validation.
 
 Confirmed workflow: generate yearly DMSP files locally with updated packages,
-transfer them to the server and rebuild crossings there, then rerun CS analysis. No production writes/full-year runs or commits made here.
+transfer them to the server and rebuild crossings there, then rerun CS analysis.
+No production writes/full-year runs were performed during implementation.
 Variance of omitted channels is not modelled; this is the selected published
-missing-error convention. All source/tests/docs/memory remain uncommitted.
+missing-error convention. This implementation is committed in main.
 
 The user approved a Python port of `energy_to_conductance.idl` and its use in
 icBuilder yearly DMSP processing. `conductance_from_spectrum` is exported from

@@ -1,11 +1,33 @@
 # Handoff - Latest
 
-Last updated: 2026-10-11
-Repository snapshot: `feat/spectrum-conductance` at `eecc263`
-Worktree state: new Hardy electron and spectrum modules/tests, exports, README and memory updates
-are uncommitted; pre-existing memory changes preserved.
+Last updated: 2026-10-12
+Repository snapshot: `main`; implementation checkpoint `8db326f`
+Worktree state: implementation committed; integration closeout updates project memory.
 
-## Latest checkpoint: Hardy electron model implemented
+## Latest checkpoint: spectrum and uncertainty branches integrated into main
+
+User authorized merging feat/spectrum-conductance into main and publishing the
+result. GitHub fetch succeeded; main c3484fd was an ancestor of 8db326f, which
+already contains fix/measurement-uncertainty eecc263. Main fast-forwarded to
+8db326f without conflicts. No code edits or branch deletions were needed.
+The full suite passed 72 tests in tConductance on 2026-10-12. Publication is
+part of the authorized closeout; verify the final main/origin/main hashes in
+live Git. Current State and Decision Log record the integration.
+
+Next: server fetch/switch main/pull --ff-only and reinstall icPhysics in the
+processing environment. Retain the independently updated icBuilder/icReader
+branches. No server login/install, production run or default-model change.
+Hardy predictive uncertainty and empirical/coordinate validation remain open.
+
+## Portfolio impact
+
+- Central update needed: Yes
+- Changes: measurement-uncertainty, spectrum and optional Hardy electron
+  implementations are integrated on main; server installation remains.
+- Sync summary: 72 package tests pass. The previous feature-branch merge
+  prerequisite is resolved; no priority, deadline or model-policy change.
+
+## Previous checkpoint: Hardy electron model implemented
 
 Confirmed 2026-10-11: the user selected full spatial MLAT/MLT/Kp evaluation
 and requested implementation using the supplied 1987 functional paper.
@@ -169,7 +191,7 @@ remains authoritative for the published model equations.
 
 ## Next action
 
-Commit and merge this branch, then update the UiB server installation before
+Main integration is complete. Update the UiB server installation before
 regenerating detector Products 2 and 3. The deferred icAnalyzer batched-array
 import check remains separate.
 

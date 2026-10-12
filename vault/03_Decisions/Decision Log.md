@@ -1,6 +1,15 @@
 # Decision Log
 
-Last reviewed: 2026-10-11
+Last reviewed: 2026-10-12
+
+## 2026-10-12 — Integrate spectrum and measurement uncertainty into main
+
+**Confirmed by the user:** merge feat/spectrum-conductance into main. Its
+ancestry includes fix/measurement-uncertainty, so one fast-forward integrates
+the measurement contract, spectrum conductance/uncertainty and optional Hardy
+electron model. Fetched remote refs, clean worktree and 72 passing package
+tests verified the integration. Retain existing feature branches and deploy
+main on the server; no production-model selection or corpus rerun is implied.
 
 ## 2026-10-11 — Optional full spatial Hardy electron energy
 
