@@ -1,6 +1,83 @@
 # Decision Log
 
-Last reviewed: 2026-08-11
+Last reviewed: 2026-10-11
+
+## 2026-10-11 — Optional full spatial Hardy electron energy
+
+**Confirmed by the user:** implement the optional Hardy electron mean-energy
+model using the supplied functional paper and each pixel's MLAT, MLT and Kp.
+Electron/proton choices remain independent; no default replacement requested.
+
+**Implementation choices:** correct the Fourier phase to 24 h periodicity;
+interpolate evaluated log10 flux for fractional Kp; expose the Northern 50–90°
+source domain and Modified Apex approximation. Retain raw E0 and flag endpoint
+WIC response evaluation. Propagate measurement errors conditional on fixed
+Hardy energy, explicitly excluding prediction error. These conventions are
+documented implementation choices, not newly confirmed scientific policies.
+Broader particle/coordinate validation precedes production model selection.
+
+
+## 2026-10-06 — Follow published DMSP NaN-error omission
+
+**Confirmed by the user:** follow the published method and ignore NaN channel-
+error terms. This supersedes our strict complete-channel-error policy and the
+unselected reversion/low-count/moment alternatives. Retain the full nominal
+spectrum, propagate available finite nonnegative errors with P/H covariance,
+and save channel availability count plus separate uncertainty validity.
+All-missing errors remain unavailable; supplied invalid errors and singular
+propagation remain invalid. Missing terms are omitted, not a recovered noise
+model. Source/method evidence and end-to-end checks are owned by icBuilder's
+DMSP Spectrum Conductance Validation note.
+
+## 2026-10-06 — Propagate spectral measurement errors analytically
+
+**Confirmed by the user:** Implement first-order spectrum-error propagation
+and verify against independent finite differences and small-error Monte Carlo.
+
+**Implementation:** Extend conductance_from_spectrum with optional absolute
+differential_energy_flux_std, retaining the original P/H-only result without
+errors and unchanged nominal values when supplied. Return P_std, H_std,
+PH_covariance and uncertainty_valid. Independent channel errors are explicit;
+atmosphere/B/energies are fixed and no additional common calibration covariance
+is added beyond components already present in supplied channel STD. Missing/
+negative/nonfinite errors or a singular zero-ionization derivative invalidate
+errors only. Preserve exact zero-error and nondepositing-channel limits.
+
+The source DMSP method leaves low-count errors undefined; this numerical API
+does not impute missing errors or implement a censored-count model. Production
+source acquisition/quality/provenance and cohort selection remain in icBuilder.
+
+## 2026-10-05 — Own the spectrum-to-conductance numerical calculation
+
+**Confirmed by the user:** Translate the supplied IDL spectrum conductance
+routine into icPhysics and use it in icBuilder's yearly DMSP processing.
+
+**Boundary:** icPhysics accepts explicit energy/flux arrays, atmosphere
+profiles and magnetic-field magnitude, returning electron P/H. Public-model
+atmosphere generation, IGRF evaluation, coordinate mapping, particle-data
+reading and yearly output remain outside this numerical package.
+
+**Batched-profile extension:** Accept shared or broadcast batched neutral
+profiles on a common altitude axis so per-measurement MSIS can be evaluated
+by icBuilder without changing the numerical equations. Preserve the shared
+profile fast path and validate batched results against individual profiles
+and independent scalar calculations.
+
+**Verification limit:** Synthetic supplied-atmosphere scalar parity is tested;
+the original atmosphere is unavailable. Inherited angular and equilibrium
+assumptions require physical validation before these estimates serve as
+absolute reference conductances.
+
+## 2026-09-20 — Make proton-correction uncertainty semantics explicit
+
+**Decision:** Keep `legacy_add_poisson` as the backward-compatible default for
+`proton_correct_images()` and add an explicit `measurement` mode for callers
+whose supplied variance already contains detector counting noise.
+
+**Rationale:** fuvpy Product-1 variance is full conditional measurement
+variance. Adding image signal again double-counts noise and can create invalid
+square roots for negative background-subtracted counts, while silently
+changing the default would alter legacy callers.
 
 ## 2026-08-11 — Keep the Zhang--Paxton application layer in icPhysics
 

@@ -624,3 +624,49 @@ def precipitation_from_zhang_paxton(
         "dFe": dFe,
         "varE0Fe": varE0Fe,
     }
+
+
+#%% Full spatial Hardy energy with observed WIC flux
+
+ELECTRON_RESPONSE_ENERGY_RANGE = (float(EE[0]), float(EE[-1]))
+
+
+def precipitation_from_hardy(wic_corrected, dwic_corrected, kp, mlt, mlat):
+    """Return Hardy mean energy and corrected-WIC event energy flux.
+
+    All inputs broadcast. Corrected WIC counts set Fe [mW m^-2], while the
+    full spatial Hardy model sets E0 [keV]. SI13 is not used. Raw E0 is
+    retained; the existing WIC response holds endpoint values outside its
+    0.2--25 keV table. E0_response_range_flag is int8: 0 within, 1 below,
+    2 above, -1 unavailable. A missing/negative/nonfinite measurement STD
+    makes dFe unavailable without discarding nominal E0/Fe. dE0 and
+    varE0Fe are 0 on nominal-valid cells, conditional on fixed Hardy energy:
+    they exclude statistical model error rather than assert exact prediction.
+    Nonpositive corrected WIC is invalid for this precipitation route.
+    """
+
+    from .hardy_electron import hardy_electron_precipitation
+
+    Wprime, dWprime, kp, mlt, mlat = np.broadcast_arrays(*[
+        np.asarray(np.ma.filled(np.ma.asarray(value, dtype=float), np.nan))
+        for value in (wic_corrected, dwic_corrected, kp, mlt, mlat)
+    ])
+    E0 = hardy_electron_precipitation(kp, mlt, mlat)["mean_energy"]
+    Wm = fWm(E0)
+    valid = np.isfinite(E0) & np.isfinite(Wprime) & (Wprime > 0)
+    Fe = np.where(valid, Wprime / Wm, np.nan)
+    E0 = np.where(valid, E0, np.nan)
+
+    uncertainty_valid = valid & np.isfinite(dWprime) & (dWprime >= 0)
+    dFe = np.where(uncertainty_valid, dWprime / Wm, np.nan)
+    dE0 = np.where(valid, 0.0, np.nan)
+    varE0Fe = np.where(valid, 0.0, np.nan)
+
+    flag = np.full(E0.shape, -1, dtype=np.int8)
+    flag = np.where(valid, 0, flag)
+    flag = np.where(valid & (E0 < EE[0]), 1, flag)
+    flag = np.where(valid & (E0 > EE[-1]), 2, flag)
+    return {
+        "E0": E0, "dE0": dE0, "Fe": Fe, "dFe": dFe,
+        "varE0Fe": varE0Fe, "E0_response_range_flag": flag.astype(np.int8)
+    }

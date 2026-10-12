@@ -1,9 +1,120 @@
 # Handoff - Latest
 
-Last updated: 2026-08-31
-Repository snapshot: `hardy-coefficients` at `069494f`
-Worktree state: Hardy coefficients, evaluator, tests, and documentation are
-uncommitted; the earlier project-memory checkpoint remains modified
+Last updated: 2026-10-11
+Repository snapshot: `feat/spectrum-conductance` at `eecc263`
+Worktree state: new Hardy electron and spectrum modules/tests, exports, README and memory updates
+are uncommitted; pre-existing memory changes preserved.
+
+## Latest checkpoint: Hardy electron model implemented
+
+Confirmed 2026-10-11: the user selected full spatial MLAT/MLT/Kp evaluation
+and requested implementation using the supplied 1987 functional paper.
+`hardy_electron_precipitation()` now returns the published number/energy flux
+and mean-energy ratio; `precipitation_from_hardy()` combines that raw energy
+with corrected WIC. [[Hardy Electron Model]] owns sources, equations, domain,
+Fourier normalization, Kp convention, response flags and conditional errors.
+All 728 coefficients independently audited; independent scalar checks agree
+within 4.33e-14 relative. Full package suite 72 tests passes. Existing ion and
+spectrum work is preserved. Builder's real 122-frame orbit passed downstream;
+no default model, corpus, commit or branch changed.
+
+Next: review empirical spatial/particle validation and coordinate sensitivity
+before production selection; predictive Hardy error remains unquantified.
+
+## Portfolio impact
+
+- Central update needed: Yes
+- Changes: Optional full spatial Hardy electron capability implemented; no
+  priority, deadline or default production-model change.
+- Sync summary: Numerical/source and integration gates passed. Broader
+  empirical/coordinate validation and predictive uncertainty remain open.
+  Existing unrelated checkpoint evidence remains as previously recorded.
+
+## Previous checkpoint: published NaN-error omission verified
+
+User explicitly chose the published DMSP convention: omit NaN channel-error
+terms. This supersedes the all-19-errors rule and proposed alternatives.
+conductance_from_spectrum retains unchanged P/H and optional analytical STD/
+covariance. New uncertainty_channel_count int16 counts finite nonnegative
+supplied errors, including0, even if nominal/propagation invalid. NaN/masked
+terms are omitted; allmissing remains unavailable. Negative/Inf supplied
+errors and singular zero-ionization derivatives remain invalid. Independent
+channels and fixed atmosphere/B/energies remain explicit; no additional
+common calibration/model covariance is added.
+
+63 physics tests pass, including independent finite-difference/MC checks and
+partial-NaN covariance, allmissing/definedzero, masked/batched/reversed cases.
+Builder's135 focused tests pass. Real Jan1 output now has19,696 uncertainty-
+valid of20,316 nominal-valid; all870 selected real CS test pairs resample.
+Nominal outputs exactly match older scratch results. Detailed source and
+execution evidence is owned by icBuilder's DMSP Spectrum Conductance Validation.
+
+Builder carries channel counts, STD/covariance and separate uncertainty flags
+through yearly and both crossing files. Confirmed workflow: regenerate yearly
+files locally with updated packages, transfer them to the server and rebuild
+crossings there, then rerun CS analysis. Annotations reusable.
+No full jobs/production writes/commit/tag/merge performed. Preserve existing
+worktree changes; server jobs are not to be monitored by the agent.
+
+## Portfolio impact
+
+- Central update needed: No
+- Changes: None
+- Sync summary: User-selected NaN omission is implemented and verified across
+  icPhysics and icBuilder; data regeneration remains a server task.
+
+## Previous checkpoint: spectrum conductance supports batched neutral profiles
+
+`conductance_from_spectrum` now returns electron P/H from full spectra,
+explicit atmosphere and reference B, with no I/O or new package dependencies.
+The scientific equations preserve the user-provided IDL calculation. Inputs
+have explicit units and broadcast shapes; missing/negative spectra are
+invalid. Zero neutral species use a geometric-limit interpolation rather than
+undefined log(0), enabling public NRLMSISE-00 profiles down to 70 km.
+All 43 tests pass, including independent scalar parity on supplied synthetic
+atmospheres, amplitude scaling, reverse ordering, missing values and zero flux.
+Atmosphere fields accept shared 1D or batched (..., altitude) arrays on a shared
+altitude grid; their leading dimensions broadcast with spectra and B. Shared
+profiles preserve the fixed-kernel fast path. Batched results match individual
+profile calls exactly and independent scalar references within 1.56e-15.
+Original-XDR/IDL-runtime parity remains unavailable, not claimed.
+
+icBuilder's yearly DMSP processor calls this function with user-selected
+2° latitude × 5° longitude × 1-hour shared MSIS profiles, driven by local
+historical daily indices. Per-measurement MSIS remains a comparison option.
+It retains an explicit
+fixed-profile alternative and evaluates IGRF at mapped 130-km footprints by
+default. Its 50 index/integration tests and full daily CDF scratch conversion
+passed. No production yearly corpus was changed.
+
+Next: review/install this checkout before selected yearly regeneration with
+local historical indices. User may investigate original MSIS table provenance.
+The existing measurement-uncertainty merge/deployment remains unresolved;
+this feature branch was created from its `eecc263` checkpoint.
+
+## Portfolio impact
+
+- Central update needed: No
+- Changes: None
+- Sync summary: Added user-approved spectrum conductance for DMSP validation.
+  The spectrum calculation now also propagates measurement errors through
+  icBuilder yearly/crossing/analysis products. This does not change the IMAGE
+  production method, priority or deadline.
+
+## Previous checkpoint: explicit detector measurement uncertainty
+
+`proton_correct_images()` now exposes two explicit contracts. The default
+`legacy_add_poisson` preserves existing callers and the frozen legacy result.
+The new `measurement` mode assumes supplied standard deviations already
+contain detector counting noise and therefore propagates them without adding
+WIC/SI12/SI13 signal as a second Poisson term. It still combines WIC/SI13
+measurement uncertainty with SI12-derived proton-correction uncertainty.
+
+This fixes icBuilder detector Product 2, whose fuvpy Product-1 variance is
+already full conditional detector measurement variance. The negative-signal
+regression and all 17 icPhysics tests pass. A full orbit-0085 integration
+comparison leaves Fp/E0/Fe and P/H unchanged and restores finite propagated
+uncertainty on every method-valid cell.
 
 ## Project state
 
@@ -58,8 +169,9 @@ remains authoritative for the published model equations.
 
 ## Next action
 
-Run an icAnalyzer batched-array import check. Keep cleanup and removal of the
-old icBuilder copies separate from this verified crude extraction.
+Commit and merge this branch, then update the UiB server installation before
+regenerating detector Products 2 and 3. The deferred icAnalyzer batched-array
+import check remains separate.
 
 Do not start the staged file-product redesign or VAE integration in this
 repository. Those consuming-project changes follow only after the shared
@@ -91,11 +203,10 @@ retain the Modified-Apex coordinate approximation in the interpretation.
 ## Portfolio impact
 
 - Central update needed: Yes
-- Changes: the Hardy et al. (1991) coefficients and functional ion model are
-  now available through a tested icPhysics API.
-- Sync summary: Hardy implementation is complete. Coordinate sensitivity and
-  Frey-event integration tests are the next scientific gates; the pre-existing
-  icAnalyzer batch/import check also remains open.
+- Changes: the shared proton-correction API now distinguishes legacy residual
+  uncertainty from full detector measurement uncertainty.
+- Sync summary: icBuilder detector Products 2 and 3 must be regenerated after
+  the icPhysics update; Product 1 remains valid.
 
 ## Entry points
 
