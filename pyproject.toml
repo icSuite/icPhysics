@@ -13,4 +13,4 @@ dependencies = ["numpy", "scipy", "netCDF4", "tqdm", "zhangpaxton2008"]
 where = ["src"]
 
 [tool.setuptools.package-data]
-icphysics = ["data/*.nc"]
+icphysics = ["data/*.nc", "data/*.csv"]

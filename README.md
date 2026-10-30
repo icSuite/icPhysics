@@ -107,8 +107,6 @@ need scientific review. Tests reproduce a separate scalar transcription on a
 synthetic atmosphere; the original `msis120065.xdr` atmosphere was unavailable,
 so original-atmosphere or IDL-runtime parity has not been established.
 
-Licensed under the MIT License.
-
 ## Full spatial Hardy electron option
 
 `hardy_electron_precipitation(kp, mlt, mlat)` returns Hardy 1987 integral
@@ -144,3 +142,74 @@ invented. Hardy flux moments include the full spectrum (measured 50 eV--20 keV,
 extrapolated 100 keV), whereas its fitted conductivities use energies >=661 eV;
 using its mean energy with Robinson does not reproduce those conductance
 fits. DOI: https://doi.org/10.1029/JA092iA11p12275.
+
+## Hardy Hall and Pedersen conductance
+
+`hardy_conductance(kp, mlt, mlat)` evaluates the independent Hardy et al.
+(1987) Tables 6--7 Epstein--Fourier fits and returns auroral electron-produced
+`hall` and `pedersen` conductance in siemens. It does not apply Robinson to
+Hardy's full-spectrum mean energy, and it does not include solar-EUV
+conductance.
+
+```python
+from icphysics import hardy_conductance
+
+conductance = hardy_conductance(kp=2, mlt=1.5, mlat=66)
+Sigma_H = conductance["hall"]
+Sigma_P = conductance["pedersen"]
+```
+
+Inputs broadcast with the same northern corrected-geomagnetic 50--90 degree
+domain and wrapped MLT convention as the Hardy electron model. Finite Kp clips
+to 0--6. Fractional Kp linearly interpolates the evaluated conductances; this
+is an explicit package convention because the paper publishes integer-Kp
+states. The published 0 S equatorward and 0.55 S poleward backgrounds are
+applied separately around each fitted peak. No hemisphere reflection, solar
+background, or model uncertainty is supplied. Provenance and domain-policy
+constants are exported as `HARDY_CONDUCTANCE_*`.
+
+`hardy_robinson_effective_precipitation(kp, mlt, mlat)` inverts those native
+Hardy conductances through the Robinson equations and returns
+`effective_energy` in keV, `effective_energy_flux` in mW m^-2, and a `valid`
+mask. Substituting the effective values back into Robinson exactly recovers
+the returned native `hall` and `pedersen` conductances on valid points.
+
+```python
+from icphysics import hardy_robinson_effective_precipitation
+
+effective = hardy_robinson_effective_precipitation(kp=2, mlt=1.5, mlat=66)
+E_effective = effective["effective_energy"]
+Q_effective = effective["effective_energy_flux"]
+```
+
+These are conductance-equivalent parameters, not the published full-spectrum
+Hardy moments or a reconstruction of its unpublished moments above the
+approximately 500-eV cutoff. Raw inverse values are retained diagnostically,
+but `valid` rejects energy below 0.5 keV and any location where either native
+conductance used the published equatorward or poleward background. For
+fractional Kp, every contributing integer-Kp endpoint must come from the fitted
+profile. No upper-energy or energy-flux threshold is imposed.
+
+`collapse_hardy_robinson_effective(kp, mlt)` reduces the valid auroral
+latitude profile to one conductance-consistent energy for each Kp/MLT pair.
+It selects the contiguous valid interval containing the Pedersen-conductance
+peak, calculates spherical-area-weighted Hall and Pedersen conductance there,
+and only then applies inverse Robinson. It does not average local effective
+energies and does not add a flux threshold.
+
+```python
+from icphysics import collapse_hardy_robinson_effective
+
+collapsed = collapse_hardy_robinson_effective(kp=2, mlt=1.5)
+E_collapsed = collapsed["representative_energy"]
+```
+
+The result includes effective energy/flux, collapsed Hall/Pedersen,
+selected-latitude and area diagnostics, peak latitude, and explicit
+valid/empty/boundary flags. The default 0.01-degree MLAT grid resolves fitted
+validity boundaries rather than representing the physical model resolution.
+`collapsed_hardy_robinson_effective_energy()` is a cached convenience
+evaluator for many samples. It uses a periodic regular-MLT profile with a
+configurable 0.05-hour default step and preserves unavailable values.
+
+Licensed under the MIT License.

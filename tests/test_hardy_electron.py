@@ -4,7 +4,13 @@ import math
 
 import numpy as np
 
-from icphysics import hardy_electron_precipitation, precipitation_from_hardy
+from icphysics import (
+    hardy_electron_precipitation,
+    hardy_robinson_effective_precipitation,
+    precipitation_from_collapsed_hardy_effective,
+    precipitation_from_hardy,
+    precipitation_from_hardy_effective,
+)
 from icphysics.hardy_electron import _epstein_log_flux, _fourier_parameters
 from icphysics.hardy_electron_coefficients import ENERGY_FLUX_COEFFICIENTS, NUMBER_FLUX_COEFFICIENTS
 
@@ -135,3 +141,46 @@ def test_nonpositive_or_missing_wic_and_model_support_invalid():
     assert np.isnan(result['Fe'][:4]).all()
     assert np.isnan(result['dFe'][:4]).all()
     np.testing.assert_equal(result['E0_response_range_flag'],[-1,-1,-1,-1,0])
+
+
+def test_hardy_effective_precipitation_uses_background_screened_energy():
+    result = precipitation_from_hardy_effective(
+        np.array([1000.0, 1000.0]),
+        np.array([20.0, 20.0]),
+        2,
+        1.5,
+        np.array([66.0, 90.0]),
+    )
+    effective = hardy_robinson_effective_precipitation(
+        2, 1.5, np.array([66.0, 90.0])
+    )
+    response = np.interp(
+        effective['effective_energy'][0],
+        [.2, .5, 1, 5, 10, 25],
+        [446, 470, 511, 377, 223, 101],
+    )
+
+    assert effective['valid'][0]
+    assert not effective['valid'][1]
+    np.testing.assert_allclose(result['E0'][0], effective['effective_energy'][0])
+    np.testing.assert_allclose(result['Fe'][0], 1000 / response)
+    np.testing.assert_allclose(result['dFe'][0], 20 / response)
+    assert np.isnan(result['E0'][1])
+    assert np.isnan(result['Fe'][1])
+    np.testing.assert_equal(result['E0_response_range_flag'], [0, -1])
+
+
+def test_collapsed_hardy_effective_precipitation_repeats_energy_over_mlat():
+    mlt = np.array([[0.0, 6.0], [0.0, 6.0]])
+    result = precipitation_from_collapsed_hardy_effective(
+        np.full((2, 2), 1000.0),
+        np.full((2, 2), 20.0),
+        2,
+        mlt,
+    )
+
+    assert np.isfinite(result['E0']).all()
+    np.testing.assert_allclose(result['E0'][0], result['E0'][1])
+    np.testing.assert_equal(result['E0_response_range_flag'], 0)
+    np.testing.assert_equal(result['dE0'], 0)
+    np.testing.assert_equal(result['varE0Fe'], 0)
