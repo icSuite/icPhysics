@@ -21,8 +21,147 @@ from icphysics import precipitation_from_ratio
 from icphysics import precipitation_from_zhang_paxton
 ```
 
+## Fang 2025 electron conductance
+
+`fang_2025_conductance()` implements [Fang (2025), DOI
+10.1029/2025JA033835](https://doi.org/10.1029/2025JA033835), equations 7--10,
+for the electron-precipitation contribution to Hall and Pedersen conductance:
+
+```python
+from icphysics import fang_2025_conductance
+
+conductance = fang_2025_conductance(
+    mean_energy,       # Maxwellian average energy [keV]
+    energy_flux,       # [mW m-2] = [erg cm-2 s-1]
+    magnetic_field,    # magnitude at 150 km [microtesla]
+)
+Sigma_P = conductance["P"]
+Sigma_H = conductance["H"]
+```
+
+The published domain is 1--20 keV average energy. Positive energies below
+1 keV use the IMAGE operational 1-keV floor by default and set
+`energy_clipped_low`; nonpositive, nonfinite, and above-20-keV energies are
+unavailable. `within_model_domain`, `input_energy`, and `evaluated_energy`
+make this distinction explicit. `low_energy_policy="reject"` provides a
+strict domain-only calculation. The upper bound is never clipped or
+extrapolated. Zero energy flux returns exactly zero conductance when energy
+and field are otherwise valid.
+
+Fang's input is Maxwellian *average* energy, twice characteristic energy under
+the paper's definition. Callers must establish compatibility with their
+energy product rather than silently substituting characteristic energy. They
+must also supply a positive field magnitude from a field model evaluated at
+150 km; icPhysics performs no coordinate conversion or IGRF calculation.
+Fang conductance excludes proton and solar-EUV contributions and is an
+optional alternative; Robinson and all current consumer defaults are
+unchanged.
+
+First-order input uncertainty is explicit in a separate call:
+
+```python
+from icphysics import fang_2025_conductance_uncertainty
+
+conductance = fang_2025_conductance_uncertainty(
+    mean_energy, energy_flux, magnetic_field,
+    mean_energy_std=mean_energy_std,
+    energy_flux_std=energy_flux_std,
+    magnetic_field_std=magnetic_field_std,
+    energy_flux_covariance=energy_flux_covariance,
+)
+```
+
+This returns `P_std`, `H_std`, `PH_covariance`, and `uncertainty_valid` using
+analytical Jacobians, with other input covariances assumed zero. Invalid
+uncertainty inputs do not remove valid nominal conductance. Below the 1-keV
+floor, the first-order energy derivative is zero;
+`uncertainty_straddles_low_energy_boundary` identifies one-standard-deviation
+intervals that cross the floor, where sampled propagation should be preferred.
+At zero nominal flux, nonzero flux uncertainty is singular and unavailable.
+The collapsed Zhang--Paxton structural energy spread is not a measurement or
+predictive standard deviation and must remain labelled if used in a
+sensitivity ensemble.
+
 `ZhangPaxton2008` supplies the published empirical model. icPhysics contains
-the IMAGE-specific latitude collapse and bundled Kp lookup table.
+the IMAGE-specific latitude collapse and legacy bundled 36-by-36 Kp lookup.
+The lookup generator also supports the frozen 46-by-46 detector grid without
+depending on icBuilder at runtime. Its coordinate template is versioned in
+icPhysics; the 901-layer detector lookup is generated separately when needed.
+
+For arbitrary detector MLT, the cached flux-weighted collapsed evaluator and
+its corrected-WIC precipitation wrapper are available directly:
+
+```python
+from icphysics import (
+    collapsed_zhang_paxton_q_weighted,
+    precipitation_from_collapsed_zhang_paxton,
+)
+
+collapsed = collapsed_zhang_paxton_q_weighted(kp, mlt)
+precipitation = precipitation_from_collapsed_zhang_paxton(
+    wic_corrected, dwic_corrected, kp, mlt
+)
+```
+
+The returned energy spread and precipitation `dE0` are the Q-weighted RMS
+MLAT variation discarded by the collapse. They are not predictive model
+uncertainty.
+
+The legacy call remains unchanged:
+
+```python
+legacy = load_zhang_paxton_lookup(kp)
+```
+
+The detector lookup requires explicit grid and energy selections:
+
+```python
+from icphysics import (
+    load_zhang_paxton_lookup,
+    ZHANG_PAXTON_DETECTOR_GRID_ID,
+)
+
+full = load_zhang_paxton_lookup(
+    kp,
+    grid_id=ZHANG_PAXTON_DETECTOR_GRID_ID,
+    energy_variant="full",
+)
+area_mean = load_zhang_paxton_lookup(
+    kp,
+    grid_id=ZHANG_PAXTON_DETECTOR_GRID_ID,
+    energy_variant="area_mean",
+)
+q_weighted = load_zhang_paxton_lookup(
+    kp,
+    grid_id=ZHANG_PAXTON_DETECTOR_GRID_ID,
+    energy_variant="q_weighted",
+)
+conductance_effective = load_zhang_paxton_lookup(
+    kp,
+    grid_id=ZHANG_PAXTON_DETECTOR_GRID_ID,
+    energy_variant="conductance_effective",
+)
+```
+
+The full result supplies `E0_full`, `Q_full` and `full_valid`, without an
+invented energy uncertainty. The three collapsed variants all use the same
+contiguous `Q > 0.05 mW m-2` interval around the flux peak between 50 and 90
+degrees MLAT:
+
+- `area_mean` supplies `E0_area_mean`, `dE0_area_mean`, and
+  `E0_area_median` using spherical area weights.
+- `q_weighted` supplies `E0_q_weighted` and `dE0_q_weighted` using spherical
+  area times local Q.
+- `conductance_effective` supplies `E0_conductance_effective` and
+  `Q_conductance_effective` by area-averaging local Robinson Hall/Pedersen
+  conductance and inverting the pair. `dE0_conductance_effective` is the
+  area-times-sqrt(Q)-weighted RMS local-energy deviation about that effective
+  energy.
+
+Every collapsed `dE0` is a structural MLAT spread discarded by its collapse,
+not coefficient, measurement, or predictive uncertainty. The old
+`energy_variant="collapsed"` detector API and the no-keyword 36-by-36 loader
+remain aliases for the area-mean fields.
 
 The Hardy et al. (1991) statistical ion-precipitation model is available as a
 separate pure-array calculation:

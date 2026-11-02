@@ -735,3 +735,70 @@ def precipitation_from_collapsed_hardy_effective(
         energy,
         np.isfinite(energy),
     )
+
+
+def precipitation_from_collapsed_zhang_paxton(
+    wic_corrected,
+    dwic_corrected,
+    kp,
+    mlt,
+):
+    """Return flux-weighted collapsed Zhang--Paxton energy with WIC flux.
+
+    ``dE0`` is the Q-weighted RMS latitude spread discarded by the collapse.
+    It is propagated through the WIC response but must not be interpreted as
+    predictive Zhang--Paxton model uncertainty.
+    """
+
+    from .zhang_paxton import collapsed_zhang_paxton_q_weighted
+
+    collapsed = collapsed_zhang_paxton_q_weighted(kp, mlt)
+    Wprime, dWprime, E0, dE0, model_valid = np.broadcast_arrays(
+        *[
+            np.asarray(
+                np.ma.filled(np.ma.asarray(value, dtype=float), np.nan)
+            )
+            for value in (
+                wic_corrected,
+                dwic_corrected,
+                collapsed["energy"],
+                collapsed["energy_spread"],
+                collapsed["valid"],
+            )
+        ]
+    )
+    model_valid = model_valid.astype(bool)
+    Wm = fWm(E0)
+    valid = (
+        model_valid & np.isfinite(E0) & np.isfinite(dE0) & (dE0 >= 0)
+        & np.isfinite(Wprime) & (Wprime > 0)
+    )
+    Fe = np.where(valid, Wprime / Wm, np.nan)
+    E0 = np.where(valid, E0, np.nan)
+    dE0 = np.where(valid, dE0, np.nan)
+
+    uncertainty_valid = valid & np.isfinite(dWprime) & (dWprime >= 0)
+    dWm = np.abs(fdWm_dE0(E0) * dE0)
+    dFe = np.where(
+        uncertainty_valid,
+        fdFe(Wprime, Wm, dWprime, dWm),
+        np.nan,
+    )
+    varE0Fe = np.where(
+        uncertainty_valid,
+        e0_fe_covariance(E0, Fe, dE0),
+        np.nan,
+    )
+
+    flag = np.full(E0.shape, -1, dtype=np.int8)
+    flag = np.where(valid, 0, flag)
+    flag = np.where(valid & (E0 < EE[0]), 1, flag)
+    flag = np.where(valid & (E0 > EE[-1]), 2, flag)
+    return {
+        "E0": E0,
+        "dE0": dE0,
+        "Fe": Fe,
+        "dFe": dFe,
+        "varE0Fe": varE0Fe,
+        "E0_response_range_flag": flag.astype(np.int8),
+    }

@@ -6,7 +6,9 @@ slice we:
 
 1. find the largest Q value;
 2. keep the contiguous cells around that peak where Q is above a threshold;
-3. calculate the spherical-area-weighted E0 mean, median, and spread.
+3. calculate three complementary latitude collapses over that same interval:
+   spherical-area mean, spherical-area times Q mean, and a Robinson-
+   conductance-equivalent precipitation pair.
 
 The default ``Q > 0.05 mW m-2`` threshold follows the criterion used for the
 global-average energy in Zhang and Paxton (2008), Figure 8.  The 0.01-degree
@@ -17,15 +19,20 @@ Functions return ordinary dictionaries so that the calculation and its
 outputs remain easy to inspect in a research notebook or script.
 """
 
+from functools import lru_cache
+
 import numpy as np
 
 from zhangpaxton2008 import zhang_paxton
+
+from .robinson import hall, ped
 
 
 DEFAULT_MLAT_STEP_DEGREES = 0.01
 FIGURE8_THRESHOLD = 0.05
 BOUNDARY_THRESHOLD = 0.25
 MODEL_EVALUATION_BATCH_SIZE = 64
+DEFAULT_COLLAPSED_MLT_STEP_HOURS = 0.1
 
 
 def regular_latitude_grid(
@@ -116,9 +123,17 @@ def _empty_slice(area_weights, threshold, peak_mlat=np.nan, peak_flux=np.nan):
 
     return {
         "representative_energy": np.nan,
+        "area_mean_energy": np.nan,
         "area_weighted_median_energy": np.nan,
         "weighted_spread": np.nan,
+        "area_mean_energy_spread": np.nan,
         "q_weighted_energy": np.nan,
+        "q_weighted_energy_spread": np.nan,
+        "conductance_effective_energy": np.nan,
+        "conductance_effective_energy_spread": np.nan,
+        "conductance_effective_energy_flux": np.nan,
+        "area_mean_hall_conductance": np.nan,
+        "area_mean_pedersen_conductance": np.nan,
         "selected_lower_mlat": np.nan,
         "selected_upper_mlat": np.nan,
         "selected_area_weight": 0.0,
@@ -143,10 +158,24 @@ def collapse_latitude_slice(
 ):
     """Collapse one latitude profile inside its principal auroral interval.
 
-    The representative E0 is the spherical-area-weighted mean.  The median is
-    a robust typical-area diagnostic, while ``weighted_spread`` is the MLAT
-    variability discarded by the collapse and is used as dE0.  The
-    Q-weighted mean is retained only as a sensitivity diagnostic.
+    All methods use the same contiguous interval around the Q peak where
+    ``Q > threshold``:
+
+    - ``area_mean_energy`` uses spherical cell area and its structural spread
+      is the area-weighted RMS deviation about that mean.
+    - ``q_weighted_energy`` uses spherical area times Q and its structural
+      spread is the matching weighted RMS deviation about that mean.
+    - ``conductance_effective_energy`` area-averages local Robinson Hall and
+      Pedersen conductances, then inverts that pair to effective E0 and Q.
+      Its structural spread is the area-times-sqrt(Q)-weighted RMS deviation
+      of local E0 about the effective E0. Robinson conductance amplitude is
+      proportional to sqrt(Q), so this weights cells by their common ability
+      to contribute conductance without preferring Hall or Pedersen.
+
+    These spreads quantify MLAT structure discarded by each collapse. They
+    are not coefficient, measurement, or predictive uncertainties. The old
+    ``representative_energy`` and ``weighted_spread`` names remain aliases for
+    the area-mean method.
     """
 
     energy = np.asarray(mean_energy, dtype=float)
@@ -193,14 +222,50 @@ def collapse_latitude_slice(
     power_weights = selected_area * np.clip(flux[selected], 0, None)
     if power_weights.sum() > 0:
         q_weighted_mean = float(np.average(selected_energy, weights=power_weights))
+        q_weighted_variance = np.average(
+            (selected_energy - q_weighted_mean) ** 2,
+            weights=power_weights,
+        )
+        q_weighted_spread = float(np.sqrt(max(q_weighted_variance, 0)))
     else:
         q_weighted_mean = np.nan
+        q_weighted_spread = np.nan
+
+    selected_flux = flux[selected]
+    local_hall = hall(selected_energy, selected_flux)
+    local_pedersen = ped(selected_energy, selected_flux)
+    mean_hall = float(np.average(local_hall, weights=selected_area))
+    mean_pedersen = float(np.average(local_pedersen, weights=selected_area))
+
+    conductance_effective_energy = (
+        mean_hall / (0.45 * mean_pedersen)
+    ) ** (1 / 0.85)
+    conductance_effective_flux = (
+        mean_pedersen
+        * (16 + conductance_effective_energy**2)
+        / (40 * conductance_effective_energy)
+    ) ** 2
+
+    conductance_weights = selected_area * np.sqrt(selected_flux)
+    conductance_variance = np.average(
+        (selected_energy - conductance_effective_energy) ** 2,
+        weights=conductance_weights,
+    )
+    conductance_spread = float(np.sqrt(max(conductance_variance, 0)))
 
     return {
         "representative_energy": mean,
+        "area_mean_energy": mean,
         "area_weighted_median_energy": median,
         "weighted_spread": float(np.sqrt(max(variance, 0))),
+        "area_mean_energy_spread": float(np.sqrt(max(variance, 0))),
         "q_weighted_energy": q_weighted_mean,
+        "q_weighted_energy_spread": q_weighted_spread,
+        "conductance_effective_energy": float(conductance_effective_energy),
+        "conductance_effective_energy_spread": conductance_spread,
+        "conductance_effective_energy_flux": float(conductance_effective_flux),
+        "area_mean_hall_conductance": mean_hall,
+        "area_mean_pedersen_conductance": mean_pedersen,
         "selected_lower_mlat": float(edges[lower_index]),
         "selected_upper_mlat": float(edges[upper_index + 1]),
         "selected_area_weight": float(selected_area_sum),
@@ -250,9 +315,17 @@ def collapse_zhang_paxton(
 
     float_fields = [
         "representative_energy",
+        "area_mean_energy",
         "area_weighted_median_energy",
         "weighted_spread",
+        "area_mean_energy_spread",
         "q_weighted_energy",
+        "q_weighted_energy_spread",
+        "conductance_effective_energy",
+        "conductance_effective_energy_spread",
+        "conductance_effective_energy_flux",
+        "area_mean_hall_conductance",
+        "area_mean_pedersen_conductance",
         "selected_lower_mlat",
         "selected_upper_mlat",
         "selected_area_weight",
@@ -304,3 +377,95 @@ def collapse_zhang_paxton(
     result["latitude_edges"] = latitude_edges
     result["threshold"] = float(threshold)
     return result
+
+
+#%% Cached flux-weighted collapsed evaluator
+
+@lru_cache(maxsize=None)
+def _q_weighted_mlt_profile(
+    kp,
+    lower_mlat,
+    upper_mlat,
+    latitude_step,
+    mlt_step,
+):
+    """Calculate one reusable periodic Q-weighted MLT profile."""
+
+    mlt = np.arange(0, 24, mlt_step)
+    collapsed = collapse_zhang_paxton(
+        np.full(mlt.shape, kp),
+        mlt,
+        lower_mlat=lower_mlat,
+        upper_mlat=upper_mlat,
+        latitude_step=latitude_step,
+    )
+    return (
+        mlt,
+        collapsed["q_weighted_energy"],
+        collapsed["q_weighted_energy_spread"],
+    )
+
+
+def collapsed_zhang_paxton_q_weighted(
+    kp,
+    mlt,
+    lower_mlat=50.0,
+    upper_mlat=90.0,
+    latitude_step=DEFAULT_MLAT_STEP_DEGREES,
+    mlt_step=DEFAULT_COLLAPSED_MLT_STEP_HOURS,
+):
+    """Evaluate flux-weighted collapsed Zhang--Paxton energy at any MLT.
+
+    The returned ``energy_spread`` is the Q-weighted RMS latitude variation
+    discarded by the collapse. It is structural spread, not predictive model
+    uncertainty. Kp is rounded to the nearest hundredth to match the lookup
+    tables and periodic MLT profiles are cached for efficient orbit use.
+    """
+
+    if not np.isfinite(mlt_step) or mlt_step <= 0 or mlt_step > 24:
+        raise ValueError("mlt_step must be finite and between 0 and 24 hours")
+    if not np.isclose(24 / mlt_step, round(24 / mlt_step)):
+        raise ValueError("mlt_step must divide 24 hours exactly")
+
+    regular_latitude_grid(lower_mlat, upper_mlat, latitude_step)
+    kp_grid, mlt_grid = np.broadcast_arrays(
+        np.asarray(np.ma.filled(np.ma.asarray(kp, dtype=float), np.nan)),
+        np.asarray(np.ma.filled(np.ma.asarray(mlt, dtype=float), np.nan)),
+    )
+    energy = np.full(kp_grid.shape, np.nan, dtype=float)
+    spread = np.full(kp_grid.shape, np.nan, dtype=float)
+    finite = (
+        np.isfinite(kp_grid) & (kp_grid >= 0) & (kp_grid <= 9)
+        & np.isfinite(mlt_grid)
+    )
+    effective_kp = np.floor(kp_grid * 100 + 0.5 + 1e-12) / 100
+
+    for kp_value in np.unique(effective_kp[finite]):
+        profile_mlt, profile_energy, profile_spread = (
+            _q_weighted_mlt_profile(
+                float(kp_value),
+                float(lower_mlat),
+                float(upper_mlat),
+                float(latitude_step),
+                float(mlt_step),
+            )
+        )
+        selected = finite & (effective_kp == kp_value)
+        periodic_mlt = np.append(profile_mlt, 24.0)
+        periodic_energy = np.append(profile_energy, profile_energy[0])
+        periodic_spread = np.append(profile_spread, profile_spread[0])
+        target_mlt = np.mod(mlt_grid[selected], 24)
+        energy[selected] = np.interp(
+            target_mlt, periodic_mlt, periodic_energy
+        )
+        spread[selected] = np.interp(
+            target_mlt, periodic_mlt, periodic_spread
+        )
+
+    return {
+        "energy": energy,
+        "energy_spread": spread,
+        "kp": np.where(finite, effective_kp, np.nan),
+        "mlt": np.where(finite, np.mod(mlt_grid, 24), np.nan),
+        "valid": np.isfinite(energy) & np.isfinite(spread),
+    }

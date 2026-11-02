@@ -1,8 +1,376 @@
 # Handoff - Latest
 
-Last updated: 2026-10-12
-Repository snapshot: `main`; implementation checkpoint `8db326f`
-Worktree state: implementation committed; integration closeout updates project memory.
+Last updated: 2026-11-02
+Repository snapshot: `feat/hardy-conductance` from `496e841`
+Worktree state: verified implementation and memory changes are uncommitted.
+
+## Latest checkpoint: cZP detector Product-2 route is ready
+
+The public `collapsed_zhang_paxton_q_weighted(kp, mlt)` API evaluates the
+flux-weighted 50--90-degree Zhang--Paxton collapse at arbitrary MLT using
+cached periodic 0.1-hour profiles. Kp follows the lookup convention by
+rounding to the nearest hundredth. It returns the collapsed energy and the
+Q-weighted RMS latitude variation discarded by the collapse.
+
+`precipitation_from_collapsed_zhang_paxton()` combines those values with
+corrected WIC and its measurement uncertainty, returning E0, dE0, Fe, dFe,
+their covariance and the camera-response range flag. Here dE0 remains a
+structural sensitivity scale, not predictive Zhang--Paxton uncertainty.
+
+icBuilder exposes the route as `--precipitation-method zhang_paxton` with the
+derived label `CollapsedZhangPaxtonQWeightedElectron_HardyProton...` when
+Hardy proton energy is retained. Scientific metadata and response flags pass
+through detector precipitation, detector conductance and both CS products.
+The icPhysics suite passes 123 tests; 48 focused icBuilder Product-2/Product-3/
+CS tests pass. A real four-point calculation at Kp 2 and MLT 0/6/12/18 hours
+returned finite E0, dE0 and WIC-derived flux.
+
+Next: run the selected cZP Product-2 corpus. This enables a bounded run; it
+does not select cZP as the production default or resolve predictive energy
+uncertainty.
+
+## Portfolio impact
+
+- Central update needed: Yes
+- Changes: flux-weighted collapsed Zhang--Paxton is now available as an
+  explicit icBuilder detector Product-2 configuration.
+- Sync summary: a cZP Product-2 run can proceed; defaults are unchanged and
+  stored dE0 remains structural rather than calibrated uncertainty.
+
+## Latest checkpoint: Zhang--Paxton Robinson/Fang conductance plot added
+
+`scripts/plot_ZP_conductance.py` produces one 3-by-3 polar figure for every
+integer Kp 0--9. Each figure evaluates one shared full Zhang--Paxton average-
+energy and energy-flux map. The top row shows Robinson Hall, Fang Hall and
+Fang-minus-Robinson Hall; the middle row shows the corresponding Pedersen
+fields. The bottom row shows Robinson Hall/Pedersen, Fang Hall/Pedersen and the
+third axis is unused. Each model pair shares its own per-Kp color range, and
+the Hall and Pedersen differences use symmetric zero-centred diverging ranges.
+Explicit cell edges preserve the complete 50--90-degree MLAT disk and periodic
+MLT seam.
+
+Fang uses its 50-microtesla 150-km reference field by default. The uniform
+field is exposed as `--magnetic-field`; this diagnostic does not calculate or
+approximate a historical spatial IGRF map. The plot uses strict Fang-domain
+evaluation: energy below 1 or above 20 keV is unavailable, with no operational
+floor. Coarse Kp 0 and 9 smoke figures rendered successfully; syntax and
+whitespace checks pass. No repository figure, lookup artifact, model API or
+default changed.
+
+## Portfolio impact
+
+- Central update needed: No
+- Changes: None
+- Sync summary: added a diagnostic Zhang--Paxton Robinson/Fang comparison
+  plot; research priority, consumer state and scientific defaults are
+  unchanged.
+
+## Latest checkpoint: Fang 2025 conductance implemented
+
+`fang_2025_conductance()` implements equations 7--10 and Tables 2--3 from the
+supplied Fang (2025) paper. Inputs are Maxwellian average energy [keV], energy
+flux [mW m-2] and caller-prepared magnetic-field magnitude at 150 km
+[microtesla]. NumPy inputs broadcast, masked/nonfinite and nonphysical values
+remain unavailable, valid zero flux returns exact zero, and returned masks
+distinguish the published 1--20-keV domain from the operational positive
+sub-1-keV floor. `low_energy_policy="reject"` supports the strict cohort;
+above-20-keV energy is never clipped or extrapolated.
+
+`fang_2025_conductance_uncertainty()` separately propagates energy, flux and
+field standard deviations plus energy--flux covariance with analytical
+Jacobians. It returns P/H standard deviations and covariance without changing
+nominal results when errors are invalid, sets zero energy sensitivity below
+the floor, flags one-standard-deviation intervals crossing 1 keV, and rejects
+the singular case of nonzero flux uncertainty at zero nominal flux.
+
+Every coefficient was checked against the local PDF. Independent literal
+equations and scalar checkpoints, domain and mask cases, multidimensional
+broadcasting, separate Hall/Pedersen field exponents, finite differences and
+a 100,000-draw Monte Carlo comparison pass. The complete suite passes 121
+tests. README and public exports are updated. No consumer, IGRF calculation,
+lookup generation, production output or default was changed.
+
+Next: integrate historical IGRF at 150 km in icBuilder's bounded Paper 1
+comparison and report both operational and strict Fang-domain cohorts against
+matched DMSP spectrum conductance before considering a default change.
+
+## Portfolio impact
+
+- Central update needed: Yes
+- Changes: the optional Fang 2025 numerical and uncertainty APIs are verified
+  and ready for bounded icBuilder comparison; project priority and defaults
+  are unchanged.
+- Sync summary: consumer IGRF integration and empirical Fang-versus-Robinson
+  validation are the next actions; no production selection has been made.
+
+## Latest checkpoint: Zhang--Paxton model plotting script added
+
+`scripts/plot_ZP_models.py` produces one 12-panel polar figure for every
+integer Kp 0--9. It evaluates the full Zhang--Paxton mean-energy and energy-
+flux fields directly, then displays area-mean, Q-weighted, inverse-Robinson
+conductance-effective and selected-interval maximum collapsed energies. The
+maximum is evaluated over the same contiguous Q > 0.05 mW m-2 latitude
+interval and is not added to the scientific collapse API or lookup schema.
+
+The script applies Robinson to full E/Q for Hall, Pedersen and H/P, and adds
+strict-domain Fang Hall, Pedersen and H/P using a configurable uniform 150-km
+field (50 microtesla by default). The Robinson and Fang ratio panels share a
+color range. Fang values outside 1--20 keV remain unavailable; no lower-energy
+floor is applied. Collapsed values are repeated over MLAT only for display.
+Energy panels share a range and all four conductance panels share another.
+
+Coarse display-grid 12-panel smoke figures for Kp 0 and 9 rendered successfully
+while retaining the standard 0.01-degree scientific collapse grid. Syntax and
+`git diff --check` pass. No lookup artifact was read or generated.
+
+## Portfolio impact
+
+- Central update needed: No
+- Changes: None
+- Sync summary: Added and smoke-tested a diagnostic Zhang--Paxton comparison
+  plot; model APIs, lookup artifacts and production choices are unchanged.
+
+## Latest checkpoint: three Zhang--Paxton collapse methods implemented
+
+`collapse_latitude_slice()` and `collapse_zhang_paxton()` now provide three
+50--90-degree reductions over the same contiguous Q > 0.05 mW m-2 interval:
+area-weighted arithmetic mean, area-times-Q-weighted mean, and a
+conductance-equivalent method that area-averages local Robinson Hall/Pedersen
+and inverse-Robinson recovers effective E0/Q. Their structural dE0 values are,
+respectively, the matching weighted RMS spreads and an area-times-sqrt(Q)-
+weighted RMS local-E0 deviation centered on effective E0. The sqrt(Q) factor
+matches the common Robinson conductance amplitude and does not prefer H or P.
+
+Both legacy and detector generator paths now carry explicit fields for all
+three energies/spreads and effective Q. Historical `E0`/`dE0` and detector
+`E0_collapsed`/`dE0_collapsed` remain exact area-mean aliases. Loaders expose
+`area_mean`, `q_weighted`, and `conductance_effective`, retain `collapsed`, and
+reject grid mismatch, missing variants, or inconsistent explicit/alias area
+fields.
+
+Focused synthetic/fixture tests cover formulas, weighting centers, exact
+Robinson conductance round trips, selection, shape, schema, all variants,
+legacy values and ambiguity rejection. The complete suite passes 108 tests.
+No generator function, CLI, multiprocessing calculation, or smoke generation
+was run.
+
+Lookup/template SHA-256 values recorded before and after this task are
+unchanged:
+
+- coordinate template: `4a5f2cc233334bc8c269e4fa30c7ee6c8b31e0f9f9e6b3cbe418d25a6b162e7c`;
+- detector lookup: `7aa440a052adf0e248e5283d4faab9641792dc21d497c9b1d6585155084887bc`;
+- legacy lookup: `ba9db0f96c80312a832761fae023157dbb8984c709a155316d356e8259bf41c8`.
+
+Scientific caveat: every dE0 is within-slice structural variability discarded
+by that definition. None represents Zhang--Paxton coefficient uncertainty,
+model bias, Kp uncertainty, or full predictive uncertainty. The preferred
+collapse must be selected from the downstream DMSP comparison; this
+implementation does not choose it.
+
+Next: generate artifacts only when explicitly authorized, then compare all
+three variants in the Paper 1 consumer before selecting a product default.
+
+## Portfolio impact
+
+- Central update needed: No
+- Changes: None
+- Sync summary: three explicit collapsed Zhang--Paxton variants are ready for
+  later artifact generation and comparison; no priority, deadline, or
+  production default changed.
+
+## Latest checkpoint: 46x46 Zhang--Paxton lookup tooling implemented
+
+The agreed detector-grid lookup design is implemented without running the
+901-layer generator. A 75-KB coordinate template freezes icBuilder grid
+`image_apex_130km_46x46_v1`, its provenance and SHA-256. The generator now has
+separate legacy/detector modes, skips full-model evaluation below 50 degrees,
+produces explicit full/collapsed fields, records verified interpolation error,
+validates all arrays and provenance, and atomically installs only a complete
+detector artifact.
+
+The loader preserves the legacy no-argument 36-by-36 result and requires
+explicit `grid_id` and `energy_variant` for the detector table. It rejects grid,
+shape, checksum, domain, provenance and nonfinite-data mismatches. Full output
+has `E0_full`, diagnostic `Q_full` and `full_valid`, with no `dE0`; collapsed
+output has its mean, MLAT spread, median and equatorward-boundary flag.
+
+The 0.1-hour collapsed profile was compared with direct collapse at 240 actual
+grid-MLT/Kp samples. Maximum errors are 0.001230 keV (mean), 0.000589 keV
+(spread) and 0.004835 keV (median); boundary flags had zero mismatches. The
+complete suite passes 102 tests and `git diff --check` passes.
+
+No detector lookup table was created. The user explicitly clarified that the
+implementation request did not authorize running the generator. Generation,
+artifact-level random-cell checks and the one-orbit detector-CS consumer smoke
+test remain pending.
+
+## Portfolio impact
+
+- Central update needed: No
+- Changes: None
+- Sync summary: 46x46 Zhang--Paxton lookup tooling and canonical coordinates
+  are implemented and tested; artifact generation and consumer integration are
+  pending, with no production selection or priority/deadline change.
+
+## Latest decision: retain the Zhang--Paxton 50-degree boundary
+
+The user confirmed 50 degrees MLAT as the hard equatorward limit. Do not
+extrapolate Zhang--Paxton below its validated high-latitude domain to force the
+0.05 mW m-2 selection interval to close. The interrupted 20-degree changes
+were removed, lookup generation stopped, and the existing 50--90-degree
+36-by-36 lookup remains byte-for-byte unchanged.
+
+The agreed follow-on design is documented in
+[[Zhang Paxton 46x46 Lookup Plan]]. It adapts the existing generator for the
+frozen detector-CS grid and stores distinct full and collapsed Zhang--Paxton
+energy fields without inventing full-model uncertainty or replacing WIC flux.
+
+## Latest checkpoint: Hardy model plotting script added
+
+Boundary diagnosis 2026-11-02: all Kp maps contain isolated divergent local
+effective energies where the Pedersen fit approaches zero with finite Hall.
+Median valid energies are 3.39--4.78 keV but maxima reach 5.10e3--1.20e6 keV
+on the default plotting grid. Robinson round trips pass; `valid` screens
+backgrounds and the lower energy bound but does not ensure physical energy
+plausibility. [[Hardy Electron Model]] owns the numerical evidence. The
+collapsed model check remains 1.99--20.51 keV. No masking policy or code
+change was made during this diagnosis.
+
+User-selected display update: the Robinson-effective mean-energy panel clips
+values above 25 keV to 25 keV and states the cap in its title. Clipping occurs
+only during figure construction; calculated model arrays and other panels are
+unchanged. A Kp 4 smoke plot rendered successfully.
+
+`scripts/plot_hardy_models.py` writes one PNG for each integer Kp level 0--6.
+Each figure contains ten `polplot` panels: Hardy Hall conductance, Pedersen
+conductance, published energy flux, published number flux, Hardy mean energy
+derived as energy flux divided by number flux, local Robinson-effective mean
+energy, local Robinson-effective flux, collapsed Robinson-effective mean
+energy, full spatial Zhang--Paxton mean energy, and collapsed Zhang--Paxton
+mean energy. Both collapsed MLT profiles are repeated over latitude for
+display; local effective values are masked using the model's validity flag.
+
+The Zhang--Paxton full model calls the maintained `zhangpaxton2008` package.
+Its collapsed panel uses `collapse_zhang_paxton` with the default contiguous
+peak interval above 0.05 mW m-2 and 0.01-degree collapse grid. A 3-by-4 layout
+keeps the original eight panels in place and hides the two unused axes.
+Coarse-grid Kp 0 and 6 smoke figures rendered successfully with all ten panels.
+
+The plotting grid uses explicit cell edges with `plotimg(..., corr=False)`, so
+the full 50--90-degree latitude domain and periodic MLT seam are rendered.
+The default 0.1-hour by 0.25-degree run produced all seven figures. The full
+package suite passes 97 tests. Matplotlib and `polplot` remain script-only
+dependencies, with no change to the package's scientific dependency boundary.
+
+Next: review figures with the chosen 25-keV display cap. Whether consumers need
+an additional physical-validity criterion remains a separate open question.
+
+## Portfolio impact
+
+- Central update needed: No
+- Changes: None
+- Sync summary: Added a verified diagnostic plotting script; scientific APIs,
+  project priority, deadlines and production defaults are unchanged. Diagnosed
+  local effective-energy divergence at near-zero Pedersen boundaries.
+
+## Latest checkpoint: collapsed Hardy effective energy implemented
+
+`collapse_hardy_robinson_effective(kp, mlt)` now evaluates native Hardy
+conductance over a regular 50--90-degree MLAT grid, finds the Pedersen peak
+among background-screened valid cells, selects its contiguous valid interval,
+and spherical-area averages Hall and Pedersen before inverse Robinson. This
+produces one conductance-consistent energy/flux pair without averaging local
+effective energies or allowing fitted-boundary spikes and disconnected valid
+regions to dominate.
+
+The full result includes representative energy/flux, collapsed Hall/Pedersen,
+selected MLAT limits, peak and area diagnostics, selected cell count, and
+valid/empty/sampling-boundary flags. The default MLAT step is 0.01 degrees;
+there is no upper-energy or flux threshold. Empty profiles remain NaN and no
+poleward extrapolation occurs. The cached convenience API
+`collapsed_hardy_robinson_effective_energy()` uses a configurable periodic
+MLT profile with a 0.05-hour default step.
+
+The complete suite passes 95 tests. Independent synthetic tests prove that the
+result is inverse(mean Hall, mean Pedersen), not mean(local energy), remains
+stable beside a 1000-keV local boundary spike, and rejects disconnected cells.
+Native Hardy backgrounds, round trips, fractional Kp, scalar/broadcast/masked
+inputs, periodic MLT, empty slices and grids are covered. Existing Hardy APIs
+and frozen values remain passing. A 7-Kp x 48-MLT sanity grid was entirely
+valid with representative energy 1.99--20.51 keV. Default cached-profile
+construction took about 3.0 s for one Kp locally. `git diff --check`, syntax
+parsing and the full suite pass. No consumer, commit, merge or default changed.
+
+Next: integrate the optional cached energy in the bounded icBuilder Paper 1
+comparison, while retaining the old full-spectrum collapse as a diagnostic.
+
+## Portfolio impact
+
+- Central update needed: Yes
+- Changes: verified collapsed, conductance-consistent Hardy effective-energy
+  API is ready for consumer integration; priorities and deadlines unchanged.
+- Sync summary: icBuilder integration and empirical comparison remain.
+
+## Latest checkpoint: Hardy Robinson-effective precipitation implemented
+
+`hardy_robinson_effective_precipitation(kp, mlt, mlat)` now wraps the native
+Hardy Hall/Pedersen conductance model and exactly inverts the Robinson
+equations to return effective energy [keV] and energy flux [mW m-2]. It also
+returns source conductances, explicit Hall/Pedersen background flags and a
+validity mask. Existing `hardy_conductance()` and full-spectrum Hardy electron
+outputs are unchanged.
+
+Raw inverse values are retained wherever positive finite conductances permit
+inversion. Validity additionally requires energy >=0.5 keV and rejects any
+point where either conductance used Hardy's published equatorward or poleward
+background. Background provenance comes from the Epstein evaluator's clipping
+decision. At fractional Kp, every integer endpoint with nonzero interpolation
+weight must be profile-based. No upper-energy or flux threshold was added.
+The quantities are conductance-equivalent, not Hardy's published full-spectrum
+moments or a reconstruction of its unpublished cutoff moments.
+
+The full suite passes 83 tests. Focused checks cover exact Robinson round trips,
+both backgrounds, conservative fractional-Kp flags, the raw-but-invalid
+sub-0.5-keV boundary, broadcasting, masked/nonfinite inputs and frozen native
+Hardy values. Syntax and `git diff --check` pass. No consumer, production
+default, commit, merge, push or server state changed.
+
+Next: integrate this optional effective-energy model in icBuilder and compare
+it empirically before selecting a production energy source.
+
+## Portfolio impact
+
+- Central update needed: Yes
+- Changes: optional conductance-consistent Hardy effective energy/flux API is
+  implemented and verified; no portfolio priority or deadline changed.
+- Sync summary: icBuilder integration and empirical model comparison remain.
+
+## Latest checkpoint: direct Hardy conductance model implemented
+
+`hardy_conductance(kp, mlt, mlat)` now provides the Hardy et al. (1987)
+Tables 6--7 Hall/Pedersen Epstein--Fourier fits as a broadcast array API.
+It returns electron-produced conductance in siemens and deliberately excludes
+solar EUV, hemisphere reflection and unsupported predictive uncertainty.
+It is independent of Robinson and Hardy's full-spectrum precipitation moments.
+
+The implementation packages both 91-row coefficient tables, applies the
+published 0 S equatorward/0.55 S poleward backgrounds, wraps MLT, clips finite
+Kp 0--6 and linearly interpolates evaluated conductance for fractional Kp.
+Latitude support is northern corrected geomagnetic 50--90 degrees. All 728
+coefficients were checked against the supplied PDF and an independent local
+transcription. Independent scalar-grid and published-maxima tests pass.
+The full suite passes 78 tests; a wheel build succeeds and contains the CSVs.
+
+Next: review/commit the feature branch. Consumer integration, default changes,
+server installation, predictive uncertainty and coordinate sensitivity were
+not part of this checkpoint.
+
+## Portfolio impact
+
+- Central update needed: Yes
+- Changes: optional direct Hardy Hall/Pedersen conductance capability is
+  implemented and verified; no priority, deadline or production default changed.
+- Sync summary: feature branch is uncommitted and not integrated into main.
 
 ## Latest checkpoint: spectrum and uncertainty branches integrated into main
 
