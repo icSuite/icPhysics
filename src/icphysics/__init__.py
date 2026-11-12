@@ -2,6 +2,7 @@
 
 from .robinson import (
     hall, halluncertainty, ped, peduncertainty, robinson_conductance,
+    robinson_effective_precipitation,
 )
 from .image import (
     PROTON_CORRECTION_UNCERTAINTY_MODES,
@@ -45,7 +46,9 @@ from .hardy_effective import (
     DEFAULT_HARDY_EFFECTIVE_MLAT_STEP_DEGREES,
     DEFAULT_HARDY_EFFECTIVE_MLT_STEP_HOURS,
 )
-from .spectrum import conductance_from_spectrum
+from .spectrum import (
+    conductance_from_differential_number_flux, conductance_from_spectrum,
+)
 from .fang_2025 import (
     fang_2025_conductance, fang_2025_conductance_uncertainty,
     FANG_2025_MODEL_DOI, FANG_2025_ENERGY_RANGE_KEV,
@@ -54,7 +57,7 @@ from .fang_2025 import (
 
 __all__ = [
     "ped", "hall", "peduncertainty", "halluncertainty",
-    "robinson_conductance",
+    "robinson_conductance", "robinson_effective_precipitation",
     "precipitation_from_ratio", "precipitation_from_zhang_paxton",
     "proton_correct_images", "PROTON_RESPONSE_ENERGY_RANGE",
     "PROTON_CORRECTION_UNCERTAINTY_MODES",
@@ -79,7 +82,7 @@ __all__ = [
     "collapsed_hardy_robinson_effective_energy",
     "DEFAULT_HARDY_EFFECTIVE_MLAT_STEP_DEGREES",
     "DEFAULT_HARDY_EFFECTIVE_MLT_STEP_HOURS",
-    "conductance_from_spectrum",
+    "conductance_from_spectrum", "conductance_from_differential_number_flux",
     "fang_2025_conductance", "fang_2025_conductance_uncertainty",
     "FANG_2025_MODEL_DOI", "FANG_2025_ENERGY_RANGE_KEV",
     "FANG_2025_REFERENCE_FIELD_MICROTESLA",

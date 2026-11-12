@@ -4,6 +4,7 @@ import numpy as np
 
 from icphysics import (
     hall, halluncertainty, ped, peduncertainty, robinson_conductance,
+    robinson_effective_precipitation,
 )
 
 
@@ -45,3 +46,47 @@ def test_array_entry_point_matches_scalar_equations():
     )
     np.testing.assert_allclose(result["dP"][1], ped(E0[1], dFe[1]))
     assert np.isnan(result["dH"][2])
+
+
+def test_robinson_effective_precipitation_round_trip_grid():
+    energy = np.geomspace(.05, 100, 31)[:, None]
+    energy_flux = np.geomspace(1e-4, 1e3, 29)[None, :]
+    result = robinson_effective_precipitation(
+        hall(energy, energy_flux), ped(energy, energy_flux)
+    )
+    assert result["invertible"].all()
+    expected_energy = np.broadcast_to(energy, result["effective_energy"].shape)
+    expected_flux = np.broadcast_to(energy_flux, result["effective_energy_flux"].shape)
+    np.testing.assert_allclose(result["effective_energy"], expected_energy, rtol=1e-15)
+    np.testing.assert_allclose(
+        result["effective_energy_flux"], expected_flux, rtol=4e-15
+    )
+
+
+def test_robinson_effective_precipitation_broadcast_masks_and_invalid_inputs():
+    hall_input = np.ma.array([[1.0], [2.0], [3.0]], mask=[[False], [True], [False]])
+    pedersen_input = np.array([[1.0, 0.0, -1.0, np.nan]])
+    result = robinson_effective_precipitation(hall_input, pedersen_input)
+    assert result["effective_energy"].shape == (3, 4)
+    expected = np.array([
+        [True, False, False, False],
+        [False, False, False, False],
+        [True, False, False, False]
+    ])
+    np.testing.assert_array_equal(result["invertible"], expected)
+    assert np.isfinite(result["effective_energy"][expected]).all()
+    assert np.isnan(result["effective_energy"][~expected]).all()
+    assert np.isnan(result["effective_energy_flux"][~expected]).all()
+
+    scalar = robinson_effective_precipitation(2.0, 1.0)
+    assert scalar["effective_energy"].shape == ()
+    assert scalar["invertible"].shape == ()
+
+
+def test_robinson_effective_precipitation_does_not_clip_extreme_ratio():
+    result = robinson_effective_precipitation(1e12, 1e-6)
+    expected_energy = (1e12 / (0.45e-6)) ** (1.0 / .85)
+    np.testing.assert_allclose(result["effective_energy"], expected_energy)
+    assert result["effective_energy"] > 1e20
+    assert np.isfinite(result["effective_energy_flux"])
+    assert result["invertible"]

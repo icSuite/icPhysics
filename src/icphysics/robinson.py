@@ -32,6 +32,45 @@ def hall(E0, Fe):
     return 18 * E0**1.85 / (16 + E0**2) * np.sqrt(Fe)
 
 
+def robinson_effective_precipitation(hall_conductance, pedersen_conductance):
+    """Invert positive finite Hall/Pedersen pairs through Robinson.
+
+    Inputs broadcast normally. Masked, nonfinite, zero, or negative
+    conductances are not invertible and return NaN effective energy [keV] and
+    energy flux [mW m-2]. No clipping or model-specific validity criterion is
+    applied.
+    """
+
+    hall_conductance, pedersen_conductance = np.broadcast_arrays(
+        np.ma.asarray(hall_conductance, dtype=float).filled(np.nan),
+        np.ma.asarray(pedersen_conductance, dtype=float).filled(np.nan)
+    )
+    invertible = (
+        np.isfinite(hall_conductance)
+        & np.isfinite(pedersen_conductance)
+        & (hall_conductance > 0)
+        & (pedersen_conductance > 0)
+    )
+
+    effective_energy = np.full(hall_conductance.shape, np.nan)
+    effective_energy[invertible] = (
+        hall_conductance[invertible]
+        / (0.45 * pedersen_conductance[invertible])
+    ) ** (1.0 / 0.85)
+
+    effective_energy_flux = np.full(hall_conductance.shape, np.nan)
+    effective_energy_flux[invertible] = (
+        pedersen_conductance[invertible]
+        * (16.0 + effective_energy[invertible]**2)
+        / (40.0 * effective_energy[invertible])
+    ) ** 2
+    return {
+        "effective_energy": effective_energy,
+        "effective_energy_flux": effective_energy_flux,
+        "invertible": invertible
+    }
+
+
 #%% Uncertainty
 
 def peduncertainty(E0, Fe, dE0, dFe, varE0Fe):

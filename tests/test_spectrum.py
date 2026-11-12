@@ -10,7 +10,9 @@ import math
 import numpy as np
 import pytest
 
-from icphysics import conductance_from_spectrum
+from icphysics import (
+    conductance_from_differential_number_flux, conductance_from_spectrum,
+)
 from icphysics.spectrum import _log_interpolate
 
 
@@ -24,6 +26,15 @@ def synthetic_atmosphere():
         "mass_density_g_cm3": 6e-10 * np.exp(-(altitude - 100) / 9),
         "temperature_k": 180 + 2.5 * (altitude - 60)
     }
+
+
+def midpoint_widths_ev(energy):
+    energy = np.sort(np.asarray(energy, dtype=float))
+    steps = np.diff(energy)
+    widths = np.empty_like(energy)
+    widths[[0, -1]] = steps[[0, -1]]
+    widths[1:-1] = (steps[:-1] + steps[1:]) / 2
+    return widths * 1000
 
 
 def scalar_idl_reference(energy, flux, field_nt, atmosphere, samples=500, float32_q=False):
@@ -130,6 +141,77 @@ def test_batch_broadcast_zero_flux_sqrt_amplitude_and_channel_order():
         for j, field in enumerate(fields):
             scalar = scalar_idl_reference(energy, flux, field, atmosphere)
             np.testing.assert_allclose(actual[name][1, j], scalar[name], rtol=2e-14)
+
+
+def test_differential_number_flux_matches_legacy_scalar_batch_and_descending_order():
+    energy = np.array([0.2, 1.0, 4.0, 10.0])
+    directional_energy_flux = np.array([1e-5, 3e-5, 2e-5, 1e-6])
+    spectra = np.array([1.0, 4.0])[:, None] * directional_energy_flux
+    widths = midpoint_widths_ev(energy)
+    number_flux = spectra * np.pi * 6.242e11 / (energy * 1000.0)
+    fields = np.array([42000.0, 55000.0])
+    atmosphere = synthetic_atmosphere()
+
+    legacy = conductance_from_spectrum(energy, spectra, fields, atmosphere)
+    prepared = conductance_from_differential_number_flux(
+        energy, number_flux, widths, fields, atmosphere
+    )
+    descending = conductance_from_differential_number_flux(
+        energy[::-1], number_flux[..., ::-1], widths[::-1], fields, atmosphere
+    )
+    for name in ("P", "H"):
+        np.testing.assert_array_equal(prepared[name], legacy[name])
+        np.testing.assert_array_equal(descending[name], legacy[name])
+
+
+def test_differential_number_flux_uses_supplied_widths_without_angular_factor():
+    energy = np.array([0.5, 2.0, 8.0])
+    differential_number_flux = np.array([20.0, 30.0, 10.0])
+    inferred_widths = midpoint_widths_ev(energy)
+    supplied_widths = inferred_widths * 4
+    atmosphere = synthetic_atmosphere()
+
+    inferred = conductance_from_differential_number_flux(
+        energy, differential_number_flux, inferred_widths, 50000, atmosphere
+    )
+    supplied = conductance_from_differential_number_flux(
+        energy, differential_number_flux, supplied_widths, 50000, atmosphere
+    )
+    for name in ("P", "H"):
+        np.testing.assert_allclose(supplied[name], 2 * inferred[name], rtol=2e-14)
+
+
+@pytest.mark.parametrize("widths", [
+    [1000.0, 0.0], [1000.0, -1.0], [1000.0, np.nan],
+    [1000.0, np.inf], [1000.0], [[1000.0, 1000.0]]
+])
+def test_invalid_differential_number_flux_widths_are_rejected(widths):
+    with pytest.raises(ValueError, match="energy_bin_width_ev"):
+        conductance_from_differential_number_flux(
+            [1.0, 2.0], [1.0, 1.0], widths, 50000, synthetic_atmosphere()
+        )
+
+
+def test_differential_number_flux_zero_invalid_channels_and_field_follow_legacy_semantics():
+    energy = [1.0, 2.0]
+    widths = [1000.0, 1000.0]
+    spectra = np.array([[0.0, 0.0], [1.0, -1.0], [1.0, np.nan]])
+    result = conductance_from_differential_number_flux(
+        energy, spectra, widths, 50000, synthetic_atmosphere()
+    )
+    assert result["P"][0] == result["H"][0] == 0
+    assert np.isnan(result["P"][1:]).all() and np.isnan(result["H"][1:]).all()
+
+    masked = conductance_from_differential_number_flux(
+        energy, np.ma.array([1.0, 1.0], mask=[False, True]), widths,
+        50000, synthetic_atmosphere()
+    )
+    assert np.isnan(masked["P"]) and np.isnan(masked["H"])
+
+    invalid_field = conductance_from_differential_number_flux(
+        energy, [1.0, 1.0], widths, [0.0, np.nan], synthetic_atmosphere()
+    )
+    assert np.isnan(invalid_field["P"]).all()
 
 
 def test_invalid_spectra_and_field_do_not_become_partial_spectra():

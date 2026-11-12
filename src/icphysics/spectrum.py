@@ -20,6 +20,39 @@ def _log_interpolate(altitude, profile_alt, values):
     return np.where(fraction == 1, right, interpolated)
 
 
+def _prepare_spectrum_channels(energy_keV, spectrum, spectrum_std, spectrum_name, uncertainty_name):
+    """Validate a shared energy axis and consistently order channel arrays."""
+
+    energy = np.ma.asarray(energy_keV, dtype=np.float64).filled(np.nan)
+    values = np.ma.asarray(spectrum, dtype=np.float64).filled(np.nan)
+    values_std = None if spectrum_std is None else np.ma.asarray(spectrum_std, dtype=np.float64).filled(np.nan)
+    if energy.ndim != 1 or energy.size < 2 or not np.all(np.isfinite(energy) & (energy > 0)):
+        raise ValueError("energy_keV must be a positive finite 1D array with at least two channels")
+    if values.ndim < 1 or values.shape[-1] != energy.size:
+        raise ValueError(f"{spectrum_name} must have a final axis matching energy_keV")
+    if values_std is not None and (values_std.ndim < 1 or values_std.shape[-1] != energy.size):
+        raise ValueError(f"{uncertainty_name} must have a final axis matching energy_keV")
+    if np.all(np.diff(energy) < 0):
+        energy = energy[::-1]
+        values = values[..., ::-1]
+        if values_std is not None:
+            values_std = values_std[..., ::-1]
+    elif not np.all(np.diff(energy) > 0):
+        raise ValueError("energy_keV must be strictly increasing or decreasing")
+    return energy, values, values_std
+
+
+def _midpoint_bin_widths_kev(energy_keV):
+    """Return the legacy extrapolated-endpoint channel widths in keV."""
+
+    energy_steps = np.diff(energy_keV)
+    bin_widths = np.empty_like(energy_keV)
+    bin_widths[0] = energy_steps[0]
+    bin_widths[-1] = energy_steps[-1]
+    bin_widths[1:-1] = (energy_steps[:-1] + energy_steps[1:]) / 2
+    return bin_widths
+
+
 def conductance_from_spectrum(energy_keV, differential_energy_flux, magnetic_field_nt, atmosphere, *, altitude_samples=500, differential_energy_flux_std=None):
     """Infer Pedersen ``P`` and Hall ``H`` conductance in siemens.
 
@@ -78,24 +111,64 @@ def conductance_from_spectrum(energy_keV, differential_energy_flux, magnetic_fie
     in its interior, while exact source endpoints retain their values. This
     explicitly resolves the source's undefined log(0) endpoint arithmetic.
     """
-    # Input shapes, units, and valid support.
-    energy = np.ma.asarray(energy_keV, dtype=np.float64).filled(np.nan)
-    flux = np.ma.asarray(differential_energy_flux, dtype=np.float64).filled(np.nan)
-    flux_std = None if differential_energy_flux_std is None else np.ma.asarray(differential_energy_flux_std, dtype=np.float64).filled(np.nan)
+    energy, flux, flux_std = _prepare_spectrum_channels(
+        energy_keV, differential_energy_flux, differential_energy_flux_std,
+        "differential_energy_flux", "differential_energy_flux_std"
+    )
+    bin_widths_kev = _midpoint_bin_widths_kev(energy)
+    energy_flux = flux * np.pi * bin_widths_kev * 1000.0
+    number_flux = energy_flux * 6.242e11 / (energy * 1000.0)
+    number_flux_std = None
+    if flux_std is not None:
+        number_flux_std = flux_std * np.pi * bin_widths_kev * 1000.0 * 6.242e11 / (energy * 1000.0)
+    return _conductance_from_channel_number_flux(
+        energy, number_flux, magnetic_field_nt, atmosphere,
+        altitude_samples=altitude_samples, number_flux_std=number_flux_std
+    )
+
+
+def conductance_from_differential_number_flux(energy_keV, differential_number_flux, energy_bin_width_ev, magnetic_field_nt, atmosphere, *, altitude_samples=500, differential_number_flux_std=None):
+    """Calculate P/H from an angularly integrated differential number flux.
+
+    ``differential_number_flux`` is the incident, loss-surface-projected
+    electron spectrum in cm^-2 s^-1 eV^-1. It is already integrated over
+    pitch angle, so no angular factor is applied. ``energy_bin_width_ev`` is a
+    positive finite width for every energy channel. Optional absolute
+    one-standard-deviation errors use the same differential-number-flux units.
+    Leading dimensions and returned nominal and uncertainty fields follow
+    :func:`conductance_from_spectrum`.
+    """
+
+    original_energy = np.ma.asarray(energy_keV, dtype=np.float64).filled(np.nan)
+    widths = np.ma.asarray(energy_bin_width_ev, dtype=np.float64).filled(np.nan)
+    if widths.ndim != 1 or widths.shape != original_energy.shape:
+        raise ValueError("energy_bin_width_ev must be a 1D array matching energy_keV")
+    if not np.all(np.isfinite(widths) & (widths > 0)):
+        raise ValueError("energy_bin_width_ev must contain positive finite widths")
+
+    descending = original_energy.ndim == 1 and original_energy.size >= 2 and np.all(np.diff(original_energy) < 0)
+    energy, flux, flux_std = _prepare_spectrum_channels(
+        energy_keV, differential_number_flux, differential_number_flux_std,
+        "differential_number_flux", "differential_number_flux_std"
+    )
+    if descending:
+        widths = widths[::-1]
+    number_flux = flux * widths
+    number_flux_std = None if flux_std is None else flux_std * widths
+    return _conductance_from_channel_number_flux(
+        energy, number_flux, magnetic_field_nt, atmosphere,
+        altitude_samples=altitude_samples, number_flux_std=number_flux_std
+    )
+
+
+def _conductance_from_channel_number_flux(energy_keV, number_flux, magnetic_field_nt, atmosphere, *, altitude_samples=500, number_flux_std=None):
+    """Apply the shared Rees calculation to per-channel electron number flux."""
+
+    # Input shapes and valid support.
+    energy = np.asarray(energy_keV, dtype=np.float64)
+    flux = np.asarray(number_flux, dtype=np.float64)
+    flux_std = None if number_flux_std is None else np.asarray(number_flux_std, dtype=np.float64)
     field_nt = np.ma.asarray(magnetic_field_nt, dtype=np.float64).filled(np.nan)
-    if energy.ndim != 1 or energy.size < 2 or not np.all(np.isfinite(energy) & (energy > 0)):
-        raise ValueError("energy_keV must be a positive finite 1D array with at least two channels")
-    if flux.ndim < 1 or flux.shape[-1] != energy.size:
-        raise ValueError("differential_energy_flux must have a final axis matching energy_keV")
-    if flux_std is not None and (flux_std.ndim < 1 or flux_std.shape[-1] != energy.size):
-        raise ValueError("differential_energy_flux_std must have a final axis matching energy_keV")
-    if np.all(np.diff(energy) < 0):
-        energy = energy[::-1]
-        flux = flux[..., ::-1]
-        if flux_std is not None:
-            flux_std = flux_std[..., ::-1]
-    elif not np.all(np.diff(energy) > 0):
-        raise ValueError("energy_keV must be strictly increasing or decreasing")
     if isinstance(altitude_samples, (bool, np.bool_)) or not isinstance(altitude_samples, (int, np.integer)) or altitude_samples < 3:
         raise ValueError("altitude_samples must be an integer of at least three")
 
@@ -130,7 +203,7 @@ def conductance_from_spectrum(energy_keV, differential_energy_flux, magnetic_fie
         try:
             flux_std = np.broadcast_to(flux_std, flux.shape)
         except ValueError as error:
-            raise ValueError("differential_energy_flux_std must broadcast to the spectrum/atmosphere/field batch") from error
+            raise ValueError("spectrum uncertainty must broadcast to the spectrum/atmosphere/field batch") from error
     field_nt = np.broadcast_to(field_nt, batch_shape)
     valid = np.all(np.isfinite(flux) & (flux >= 0), axis=-1) & np.isfinite(field_nt) & (field_nt > 0)
     safe_flux = np.where(valid[..., None], flux, 0.0)
@@ -143,14 +216,7 @@ def conductance_from_spectrum(energy_keV, differential_energy_flux, magnetic_fie
     pressure = temperature * 82.05 * (oxygen + molecular_oxygen + nitrogen) / 6.022e23
     depth = 10130.0 * pressure / 9.82
 
-    # Convert differential energy flux to per-channel electron number flux.
-    energy_steps = np.diff(energy)
-    bin_widths = np.empty_like(energy)
-    bin_widths[0] = energy_steps[0]
-    bin_widths[-1] = energy_steps[-1]
-    bin_widths[1:-1] = (energy_steps[:-1] + energy_steps[1:]) / 2
-    energy_flux = safe_flux * np.pi * bin_widths * 1000.0
-    number_flux = energy_flux * 6.242e11 / (energy * 1000.0)
+    number_flux = safe_flux
 
     # Sum monoenergetic ionization profiles before calculating electron density.
     electron_range = 4.3e-7 + 5.36e-6 * energy ** 1.67
@@ -194,7 +260,7 @@ def conductance_from_spectrum(energy_keV, differential_energy_flux, magnetic_fie
     invalid_error = np.any((flux_std < 0) | np.isinf(flux_std), axis=-1)
     uncertainty_valid = valid & (channel_count > 0) & ~invalid_error
     safe_std = np.where(uncertainty_valid[..., None] & reported, flux_std, 0.)
-    number_std = safe_std * np.pi * bin_widths * 1000.0 * 6.242e11 / (energy * 1000.0)
+    number_std = safe_std
     kernel = ionization_kernel[..., :, 1:-1]
     ionization = total_ionization[..., 1:-1]
     supported = np.any(kernel != 0, axis=-2)

@@ -8,8 +8,10 @@ original MSIS-file/IDL-runtime parity.
 import numpy as np
 import pytest
 
-from icphysics import conductance_from_spectrum
-from test_spectrum import scalar_idl_reference, synthetic_atmosphere
+from icphysics import (
+    conductance_from_differential_number_flux, conductance_from_spectrum,
+)
+from test_spectrum import midpoint_widths_ev, scalar_idl_reference, synthetic_atmosphere
 
 
 def spectrum_inputs():
@@ -280,3 +282,84 @@ def test_negative_or_infinite_error_is_not_hidden_by_nan_omission():
         np.testing.assert_array_equal(result[name], nominal[name])
     for name in ("P_std", "H_std", "PH_covariance"):
         assert np.isnan(result[name]).all()
+
+
+def test_differential_number_flux_uncertainty_matches_legacy_in_both_orders():
+    energy, flux, atmosphere = spectrum_inputs()
+    spectra = np.stack([flux, flux * 2.5])
+    std = spectra * np.array([.01, .02, 0., .04, .03, .015, .025])
+    widths = midpoint_widths_ev(energy)
+    conversion = np.pi * 6.242e11 / (energy * 1000.0)
+    number_flux = spectra * conversion
+    number_std = std * conversion
+
+    legacy = conductance_from_spectrum(
+        energy, spectra, 49000, atmosphere,
+        differential_energy_flux_std=std
+    )
+    prepared = conductance_from_differential_number_flux(
+        energy, number_flux, widths, 49000, atmosphere,
+        differential_number_flux_std=number_std
+    )
+    descending = conductance_from_differential_number_flux(
+        energy[::-1], number_flux[..., ::-1], widths[::-1], 49000, atmosphere,
+        differential_number_flux_std=number_std[..., ::-1]
+    )
+    for name in legacy:
+        if name in ("uncertainty_valid", "uncertainty_channel_count"):
+            np.testing.assert_array_equal(prepared[name], legacy[name])
+            np.testing.assert_array_equal(descending[name], legacy[name])
+        else:
+            np.testing.assert_allclose(prepared[name], legacy[name], rtol=3e-16)
+            np.testing.assert_allclose(descending[name], legacy[name], rtol=3e-16)
+
+
+def test_differential_number_flux_missing_and_invalid_uncertainty_semantics():
+    energy, flux, atmosphere = spectrum_inputs()
+    widths = midpoint_widths_ev(energy)
+    number_flux = flux * np.pi * 6.242e11 / (energy * 1000.0)
+    std = number_flux * .02
+    std[[1, 4]] = np.nan
+    omitted = np.nan_to_num(std)
+    partial = conductance_from_differential_number_flux(
+        energy, number_flux, widths, 50000, atmosphere,
+        differential_number_flux_std=std
+    )
+    reference = conductance_from_differential_number_flux(
+        energy, number_flux, widths, 50000, atmosphere,
+        differential_number_flux_std=omitted
+    )
+    assert partial["uncertainty_valid"]
+    assert partial["uncertainty_channel_count"] == energy.size - 2
+    for name in ("P_std", "H_std", "PH_covariance"):
+        np.testing.assert_array_equal(partial[name], reference[name])
+
+    all_missing = conductance_from_differential_number_flux(
+        energy, number_flux, widths, 50000, atmosphere,
+        differential_number_flux_std=np.full_like(number_flux, np.nan)
+    )
+    assert not all_missing["uncertainty_valid"]
+    assert all_missing["uncertainty_channel_count"] == 0
+
+    for invalid in (-1.0, np.inf):
+        invalid_std = std.copy()
+        invalid_std[3] = invalid
+        result = conductance_from_differential_number_flux(
+            energy, number_flux, widths, 50000, atmosphere,
+            differential_number_flux_std=invalid_std
+        )
+        assert np.isfinite(result["P"]) and np.isfinite(result["H"])
+        assert not result["uncertainty_valid"]
+        assert np.isnan(result["P_std"])
+
+
+def test_differential_number_flux_zero_ionization_uncertainty_singularity():
+    energy = np.array([1.0, 10.0])
+    widths = np.array([1000.0, 1000.0])
+    result = conductance_from_differential_number_flux(
+        energy, [1.0, 0.0], widths, 50000, synthetic_atmosphere(),
+        differential_number_flux_std=[.1, .1]
+    )
+    assert result["P"] > 0 and result["H"] > 0
+    assert not result["uncertainty_valid"]
+    assert np.isnan(result["P_std"])
