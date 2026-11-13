@@ -542,29 +542,65 @@ def precipitation_from_ratio(
     R = np.full(shape, np.nan)
     dR = np.full(shape, np.nan)
 
-    for index in np.ndindex(shape):
+    # Work one detector-frame-sized block at a time.  The equations are
+    # elementwise, so NumPy can evaluate a block directly without the former
+    # Python loop over every pixel.  Blocking keeps temporary arrays small for
+    # complete detector orbits.
+    block_size = 256 * 256
+    flat_arrays = [values.reshape(-1) for values in arrays]
+    flat_outputs = [
+        values.reshape(-1) for values in (E0, dE0, Fe, dFe, R, dR)
+    ]
+
+    for start in range(0, arrays[0].size, block_size):
+        stop = min(start + block_size, arrays[0].size)
         Wprime, dWprime, Sprime, dSprime = (
-            array[index] for array in arrays
+            values[start:stop] for values in flat_arrays
         )
-        if not np.all(np.isfinite([Wprime, dWprime, Sprime, dSprime])):
+        E0_block, dE0_block, Fe_block, dFe_block, R_block, dR_block = (
+            values[start:stop] for values in flat_outputs
+        )
+
+        finite = (
+            np.isfinite(Wprime) & np.isfinite(dWprime)
+            & np.isfinite(Sprime) & np.isfinite(dSprime)
+        )
+        if not np.any(finite):
             continue
 
-        if Sprime != 0 and Wprime != 0:
-            R[index] = fR(Wprime, Sprime)
-            dR[index] = fdR(Wprime, Sprime, dWprime, dSprime)
+        ratio_valid = finite & (Sprime != 0) & (Wprime != 0)
+        R_block[ratio_valid] = fR(
+            Wprime[ratio_valid], Sprime[ratio_valid]
+        )
+        dR_block[ratio_valid] = fdR(
+            Wprime[ratio_valid], Sprime[ratio_valid],
+            dWprime[ratio_valid], dSprime[ratio_valid]
+        )
 
-        if Sprime < 3 and Wprime < 50:
-            E0[index], dE0[index] = 0.2, 0.08
-        elif Sprime < 3:
-            E0[index], dE0[index] = 1.0, 25.0
-        else:
-            E0[index] = np.clip(fE0m(R[index]), 0, 35)
-            dE0[index] = np.abs(fdE0m_dR(R[index]) * dR[index])
+        weak_default = finite & (Sprime < 3) & (Wprime < 50)
+        strong_default = finite & (Sprime < 3) & ~weak_default
+        inferred = finite & (Sprime >= 3) & ratio_valid
 
-        Wm = fWm(E0[index])
-        dWm = np.abs(fdWm_dE0(E0[index]) * dE0[index])
-        Fe[index] = fFe(Wprime, Wm)
-        dFe[index] = fdFe(Wprime, Wm, dWprime, dWm)
+        E0_block[weak_default] = 0.2
+        dE0_block[weak_default] = 0.08
+        E0_block[strong_default] = 1.0
+        dE0_block[strong_default] = 25.0
+        E0_block[inferred] = np.clip(fE0m(R_block[inferred]), 0, 35)
+        dE0_block[inferred] = np.abs(
+            fdE0m_dR(R_block[inferred]) * dR_block[inferred]
+        )
+
+        energy_valid = finite & np.isfinite(E0_block)
+        Wm = fWm(E0_block[energy_valid])
+        dWm = np.abs(
+            fdWm_dE0(E0_block[energy_valid])
+            * dE0_block[energy_valid]
+        )
+        Fe_block[energy_valid] = fFe(Wprime[energy_valid], Wm)
+        dFe_block[energy_valid] = fdFe(
+            Wprime[energy_valid], Wm,
+            dWprime[energy_valid], dWm
+        )
 
     valid = np.isfinite(E0) & np.isfinite(Fe)
     varE0Fe = np.full(shape, np.nan)
