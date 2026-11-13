@@ -45,3 +45,26 @@ def test_collapsed_zhang_paxton_propagates_structural_spread(monkeypatch):
     )
     assert np.isnan(result["E0"][2])
     assert result["E0_response_range_flag"][2] == -1
+
+
+def test_collapsed_zhang_paxton_retains_zero_wic_flux(monkeypatch):
+    def fixed_model(kp, mlt):
+        return {
+            "energy": np.array([2.0]),
+            "energy_spread": np.array([0.3]),
+            "valid": np.array([True]),
+        }
+
+    monkeypatch.setattr(
+        zhang_paxton_module,
+        "collapsed_zhang_paxton_q_weighted",
+        fixed_model,
+    )
+    result = precipitation_from_collapsed_zhang_paxton(
+        np.array([0.0]), np.array([4.0]), 2.0, np.array([0.0])
+    )
+
+    np.testing.assert_equal(result["E0"], [2.0])
+    np.testing.assert_equal(result["Fe"], [0.0])
+    assert np.isfinite(result["dFe"]).all()
+    np.testing.assert_equal(result["E0_response_range_flag"], [0])

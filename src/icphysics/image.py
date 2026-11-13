@@ -653,7 +653,7 @@ def _precipitation_from_fixed_energy(
         Wprime, dWprime, E0, model_valid
     )
     Wm = fWm(E0)
-    valid = model_valid & np.isfinite(E0) & np.isfinite(Wprime) & (Wprime > 0)
+    valid = model_valid & np.isfinite(E0) & np.isfinite(Wprime) & (Wprime >= 0)
     Fe = np.where(valid, Wprime / Wm, np.nan)
     E0 = np.where(valid, E0, np.nan)
 
@@ -771,7 +771,7 @@ def precipitation_from_collapsed_zhang_paxton(
     Wm = fWm(E0)
     valid = (
         model_valid & np.isfinite(E0) & np.isfinite(dE0) & (dE0 >= 0)
-        & np.isfinite(Wprime) & (Wprime > 0)
+        & np.isfinite(Wprime) & (Wprime >= 0)
     )
     Fe = np.where(valid, Wprime / Wm, np.nan)
     E0 = np.where(valid, E0, np.nan)

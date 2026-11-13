@@ -135,12 +135,15 @@ def test_response_flags_preserve_raw_energy_and_endpoint_response(monkeypatch):
     np.testing.assert_allclose(result['dFe'][:4],20/np.array([446,446,101,101]))
 
 
-def test_nonpositive_or_missing_wic_and_model_support_invalid():
+def test_zero_wic_is_zero_flux_while_negative_or_missing_wic_is_invalid():
     result = precipitation_from_hardy([0,-1,np.nan,1000,1000],10,2,0,[70,70,70,49,70])
-    assert np.isnan(result['E0'][:4]).all()
-    assert np.isnan(result['Fe'][:4]).all()
-    assert np.isnan(result['dFe'][:4]).all()
-    np.testing.assert_equal(result['E0_response_range_flag'],[-1,-1,-1,-1,0])
+    assert np.isfinite(result['E0'][0])
+    assert result['Fe'][0] == 0
+    assert np.isfinite(result['dFe'][0])
+    assert np.isnan(result['E0'][1:4]).all()
+    assert np.isnan(result['Fe'][1:4]).all()
+    assert np.isnan(result['dFe'][1:4]).all()
+    np.testing.assert_equal(result['E0_response_range_flag'],[0,-1,-1,-1,0])
 
 
 def test_hardy_effective_precipitation_uses_background_screened_energy():
